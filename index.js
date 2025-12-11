@@ -58,6 +58,7 @@ async function run() {
     const db = client.db('styleDecor');
     const userCollection = db.collection('users')
     const servicesCollection = db.collection('services')
+    const bookingsCollection = db.collection('bookings')
 
     //save and update user 
     app.post('/user', async (req, res) => {
@@ -212,42 +213,113 @@ async function run() {
       res.send(result);
     })
 
-    app.post('/create-checkout-session', async (req, res) => {
+    app.post("/create-checkout-session", async (req, res) => {
       const info = req.body;
 
+      // Create Stripe checkout session
       const session = await stripe.checkout.sessions.create({
         line_items: [
           {
             price_data: {
-              currency: 'usd',
+              currency: "usd",
               product_data: {
-                name: info.serviceName,
-                description: info.description,
-                images: [info.image],
+                name: info.serviceName,          
+                description: info.description,   
+                images: [info.image],            
               },
-              unit_amount: info.cost * 100,
+              unit_amount: info.cost * 100,      
             },
-            quantity: info.quantity || 1,
+            quantity: 1,
           },
         ],
 
         customer_email: info.customer?.email,
-        mode: 'payment',
+        mode: "payment",
+
 
         metadata: {
           serviceId: info.serviceId,
+          serviceName: info.serviceName,
           category: info.category,
           unit: info.unit,
-          rating: info.rating,
+          rating: String(info.rating),   
+          bookingDate: info.bookingDate,       
+          location: info.location,             
+
           customerName: info.customer?.name,
           customerEmail: info.customer?.email,
         },
 
         success_url: `${process.env.DOMAIN_URL}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${process.env.DOMAIN_URL}/services/${info.serviceId}`
+        cancel_url: `${process.env.DOMAIN_URL}/services/${info.serviceId}`,
       });
 
       res.send({ url: session.url });
+    });
+
+    // PAYMENT SUCCESS 
+    app.post('/payment-success', async (req, res) => {
+      const { sessionId } = req.body;
+
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      const {
+        serviceId,
+        category,
+        unit,
+        rating,
+        bookingDate,
+        location,
+        customerName,
+        customerEmail
+      } = session.metadata;
+
+      // Find the service in DB
+      const service = await servicesCollection.findOne({
+        _id: new ObjectId(serviceId)
+      });
+
+      // Prevent duplicate orders
+      const existingOrder = await bookingsCollection.findOne({
+        transactionId: session.payment_intent
+      });
+
+      // When payment is completed and order does not already exist
+      if (session.status === "complete" && service && !existingOrder) {
+        const bookingInfo = {
+          serviceId,
+          serviceName: service.service_name,
+          category,
+          unit,
+          rating: Number(rating),
+          transactionId: session.payment_intent,
+          customer: {
+            name: customerName,
+            email: customerEmail
+          },
+          status: "pending",
+          price: session.amount_total / 100,
+          image: service.image,
+          location,
+          bookingDate,
+          createdAt: new Date()
+        };
+
+        // Store booking in DB
+        const result = await bookingsCollection.insertOne(bookingInfo);
+
+        return res.send({
+          success: true,
+          transactionId: session.payment_intent,
+          bookingId: result.insertedId
+        });
+      }
+
+      // If order exists, just return it
+      res.send({
+        success: true,
+        transactionId: session.payment_intent,
+        bookingId: existingOrder?._id
+      });
     });
 
 
