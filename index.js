@@ -104,6 +104,60 @@ async function run() {
       res.send(result);
     })
 
+    // services filter, search, sort, pagination for services page
+    app.get("/services-filter", async (req, res) => {
+      const {
+        search = "",
+        category = "",
+        min = "",
+        max = "",
+        sort = "",
+        page = 1,
+      } = req.query;
+
+      const limit = 8;
+      const skip = (page - 1) * limit;
+
+      // FILTER OBJECT
+      const filter = {};
+
+      if (search) {
+        filter.service_name = { $regex: search, $options: "i" };
+      }
+
+      if (category) {
+        filter.category = category;
+      }
+
+      if (min || max) {
+        filter.cost = {};
+        if (min) filter.cost.$gte = Number(min);
+        if (max) filter.cost.$lte = Number(max);
+      }
+
+      // SORT OPTION
+      const sortOption = {};
+      if (sort === "asc") sortOption.cost = 1;
+      if (sort === "desc") sortOption.cost = -1;
+
+      // TOTAL COUNT + PAGINATION
+      const totalCount = await servicesCollection.countDocuments(filter);
+      const totalPages = Math.ceil(totalCount / limit);
+
+      // FINAL QUERY
+      const services = await servicesCollection
+        .find(filter)
+        .sort(sortOption)
+        .skip(skip)
+        .limit(limit)
+        .toArray();
+
+      res.send({
+        services,
+        totalPages,
+      });
+    });
+
     //put a service by admin
     app.put('/services/:id', async (req, res) => {
       const id = req.params.id;
