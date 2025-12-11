@@ -53,6 +53,7 @@ async function run() {
   try {
     const db = client.db('styleDecor');
     const userCollection = db.collection('users')
+    const servicesCollection = db.collection('services')
 
     //save and update user 
     app.post('/user', async (req, res) => {
@@ -81,6 +82,20 @@ async function run() {
       const result = await userCollection.insertOne(userData)
       res.send(result);
     })
+
+    // save a services data in db by admin
+    app.post('/service', async (req, res) => {
+      const serviceData = req.body;
+      const result = await servicesCollection.insertOne(serviceData);
+      res.send(result);
+    })
+
+    //get all services
+    app.get('/services', async (req, res) => {
+      const result = await servicesCollection.find().toArray();
+      res.send(result);
+    })
+    
     // Send a ping to confirm a successful connection
     await client.db('admin').command({ ping: 1 })
     console.log(
