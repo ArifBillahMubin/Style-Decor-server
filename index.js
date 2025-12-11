@@ -104,6 +104,26 @@ async function run() {
       res.send(result);
     })
 
+    // services filter, sort by rating for home page
+    app.get("/services-home-filter", async (req, res) => {
+      const limit = parseInt(req.query.limit) || 6;
+      const sort = req.query.sort || "desc";
+
+      let sortOption = {};
+      if (sort === "rating") sortOption = { rating: -1 };
+
+      const services = await servicesCollection
+        .find({})
+        .sort(sortOption)
+        .limit(limit)
+        .toArray();
+
+      res.send({
+        success: true,
+        services,
+      });
+    });
+
     // services filter, search, sort, pagination for services page
     app.get("/services-filter", async (req, res) => {
       const {
