@@ -3,6 +3,8 @@ const express = require('express')
 const cors = require('cors')
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb')
 const admin = require('firebase-admin')
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+
 const port = process.env.PORT || 3000
 const decoded = Buffer.from(process.env.FB_SERVICE_KEY, 'base64').toString(
   'utf-8'
@@ -17,7 +19,7 @@ const app = express()
 app.use(
   cors({
     origin: [
-      'http://localhost:5173',
+      process.env.DOMAIN_URL,
     ],
     credentials: true,
     optionSuccessStatus: 200,
@@ -49,6 +51,8 @@ const client = new MongoClient(process.env.MONGODB_URI, {
     deprecationErrors: true,
   },
 })
+
+
 async function run() {
   try {
     const db = client.db('styleDecor');
@@ -101,6 +105,28 @@ async function run() {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await servicesCollection.deleteOne(query);
+      res.send(result);
+    })
+
+    //put/edit a service by admin by
+    app.put('/services/:id', async (req, res) => {
+      const id = req.params.id;
+      const serviceData = req.body;
+      console.log(serviceData);
+      // return res.send({acknowledged:true});
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: {
+          service_name: serviceData.service_name,
+          category: serviceData.category,
+          description: serviceData.description,
+          cost: serviceData.cost,
+          unit: serviceData.unit,
+          image: serviceData.image,
+          rating: serviceData.rating,
+        },
+      };
+      const result = await servicesCollection.updateOne(filter, updateDoc);
       res.send(result);
     })
 
@@ -178,7 +204,7 @@ async function run() {
       });
     });
 
-    //get single service
+    //get single service for services details page
     app.get('/services/:id', async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
@@ -186,27 +212,44 @@ async function run() {
       res.send(result);
     })
 
-    //put a service by admin
-    app.put('/services/:id', async (req, res) => {
-      const id = req.params.id;
-      const serviceData = req.body; 
-      console.log(serviceData);
-      // return res.send({acknowledged:true});
-      const filter = { _id: new ObjectId(id) };
-      const updateDoc = {
-        $set: { 
-          service_name: serviceData.service_name,
-          category: serviceData.category,
-          description: serviceData.description,
-          cost: serviceData.cost,
-          unit: serviceData.unit,
-          image: serviceData.image,
-          rating: serviceData.rating,
+    app.post('/create-checkout-session', async (req, res) => {
+      const info = req.body;
+
+      const session = await stripe.checkout.sessions.create({
+        line_items: [
+          {
+            price_data: {
+              currency: 'usd',
+              product_data: {
+                name: info.serviceName,
+                description: info.description,
+                images: [info.image],
+              },
+              unit_amount: info.cost * 100,
+            },
+            quantity: info.quantity || 1,
+          },
+        ],
+
+        customer_email: info.customer?.email,
+        mode: 'payment',
+
+        metadata: {
+          serviceId: info.serviceId,
+          category: info.category,
+          unit: info.unit,
+          rating: info.rating,
+          customerName: info.customer?.name,
+          customerEmail: info.customer?.email,
         },
-      };
-      const result = await servicesCollection.updateOne(filter, updateDoc);
-      res.send(result);
-    })
+
+        success_url: `${process.env.DOMAIN_URL}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.DOMAIN_URL}/services/${info.serviceId}`
+      });
+
+      res.send({ url: session.url });
+    });
+
 
     // Send a ping to confirm a successful connection
     await client.db('admin').command({ ping: 1 })
