@@ -51,6 +51,36 @@ const client = new MongoClient(process.env.MONGODB_URI, {
 })
 async function run() {
   try {
+    const db = client.db('styleDecor');
+    const userCollection = db.collection('users')
+
+    //save and update user 
+    app.post('/user', async (req, res) => {
+      const userData = req.body
+
+      userData.created_at = new Date().toISOString()
+      userData.last_login = new Date().toISOString()
+      userData.role = 'customer';
+
+      const query = {
+        email: userData.email
+      }
+
+      //already exists user
+      const existingUser = await userCollection.findOne({ email: userData.email });
+      if (existingUser) {
+        const result = await userCollection.updateOne(query, {
+          $set: {
+            last_login: new Date().toISOString()
+          }
+        })
+
+        return res.send(result);
+      }
+
+      const result = await userCollection.insertOne(userData)
+      res.send(result);
+    })
     // Send a ping to confirm a successful connection
     await client.db('admin').command({ ping: 1 })
     console.log(
