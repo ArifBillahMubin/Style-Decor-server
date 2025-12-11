@@ -158,6 +158,14 @@ async function run() {
       });
     });
 
+    //get single service
+    app.get('/services/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await servicesCollection.findOne(query);
+      res.send(result);
+    })
+
     //put a service by admin
     app.put('/services/:id', async (req, res) => {
       const id = req.params.id;
