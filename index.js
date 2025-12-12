@@ -59,6 +59,7 @@ async function run() {
     const userCollection = db.collection('users')
     const servicesCollection = db.collection('services')
     const bookingsCollection = db.collection('bookings')
+    const decoratorsCollection = db.collection('decorators')
 
     //save and update user 
     app.post('/user', async (req, res) => {
@@ -212,6 +213,41 @@ async function run() {
       res.send(result);
     })
 
+    // GET all bookings for a specific customer
+    app.get("/bookings/:email", async (req, res) => {
+      const email = req.params.email;
+      const bookings = await bookingsCollection
+        .find({ "customer.email": email })
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      res.send(bookings);
+    });
+
+    // DELETE BOOKING
+    app.delete("/bookings/cancel/:id", async (req, res) => {
+      const id = req.params.id;
+      const result = await bookingsCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+
+      if (result.deletedCount > 0) {
+        return res.send({ success: true, message: "Booking deleted successfully" });
+      }
+
+      res.status(404).send({ success: false, message: "Booking not found" });
+    });
+
+    //get All PAID bookings for a customer
+    app.get("/payments/history", async (req, res) => {
+      const email = req.query.email;
+      const result = await bookingsCollection
+        .find({ "customer.email": email, payment: true })
+        .toArray();
+
+      res.send(result);
+    });
+
     //get single service for services details page
     app.get('/services/:id', async (req, res) => {
       const id = req.params.id;
@@ -220,10 +256,89 @@ async function run() {
       res.send(result);
     })
 
+
+    //for admin 
+    //manage decorator
+    // GET all customers
+    app.get("/users/customer", async (req, res) => {
+      const result = await userCollection.find({ role: "customer" }).toArray();
+      res.send(result);
+    });
+
+    // GET all decorators
+    app.get("/users/decorator", async (req, res) => {
+      const result = await decoratorsCollection.find().toArray();
+      res.send(result);
+    });
+
+    // Promote customer to decorator
+    app.patch("/users/promote/:id", async (req, res) => {
+      const id = req.params.id;
+
+      // Update role in user collection
+      await userCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { role: "decorator" } }
+      );
+
+      // Find updated user data
+      const user = await userCollection.findOne({ _id: new ObjectId(id) });
+
+      // Insert into decorator collection
+      await decoratorsCollection.updateOne(
+        { userId: id },
+        {
+          $set: {
+            userId: id,
+            name: user?.name,
+            email: user?.email,
+            imageURL: user?.imageURL,
+            role: "decorator",
+            createdAt: new Date()
+          }
+        },
+        { upsert: true }   // ensures no duplicates
+      );
+
+      res.send({ success: true, message: "User promoted to decorator" });
+    });
+
+
+    //demote decorator to customer
+    app.patch("/users/demote/:id", async (req, res) => {
+      const id = req.params.id;
+
+      // Update role in users collection
+      await userCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { role: "customer" } }
+      );
+
+      // Delete decorator record (string OR ObjectId)
+      await decoratorsCollection.deleteOne({
+        $or: [
+          { userId: id },                         // if stored as string
+          { userId: new ObjectId(id) }            // if stored as ObjectId
+        ]
+      });
+
+      res.send({ success: true, message: "Decorator removed successfully" });
+    });
+
+
+
+
+
+    //admin get bookings
+    app.get("/admin/bookings", async (req, res) => {
+      const result = await bookingsCollection.find().toArray();
+      res.send(result);
+    });
+
+    // Create Stripe checkout session
     app.post("/create-checkout-session", async (req, res) => {
       const info = req.body;
 
-      // Create Stripe checkout session
       const session = await stripe.checkout.sessions.create({
         line_items: [
           {
@@ -258,74 +373,59 @@ async function run() {
         },
 
         success_url: `${process.env.DOMAIN_URL}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${process.env.DOMAIN_URL}/services/${info.serviceId}`,
+        cancel_url: `${process.env.DOMAIN_URL}/dashboard/my-bookings`,
       });
 
       res.send({ url: session.url });
     });
 
-    // PAYMENT SUCCESS 
-    app.post('/payment-success', async (req, res) => {
+    // PAYMENT SUCCESS
+    app.post("/payment-success", async (req, res) => {
       const { sessionId } = req.body;
 
+      // retrieve checkout session info
       const session = await stripe.checkout.sessions.retrieve(sessionId);
+
       const {
         serviceId,
-        category,
-        unit,
-        rating,
         bookingDate,
         location,
-        customerName,
-        customerEmail
+        customerEmail,
+        customerName
       } = session.metadata;
 
-      // Find the service in DB
-      const service = await servicesCollection.findOne({
-        _id: new ObjectId(serviceId)
+      // find existing booking from DB
+      const booking = await bookingsCollection.findOne({
+        serviceId,
+        "customer.email": customerEmail,
+        bookingDate,
+        location
       });
 
-      // Prevent duplicate orders
-      const existingOrder = await bookingsCollection.findOne({
-        transactionId: session.payment_intent
-      });
-
-      // When payment is completed and order does not already exist
-      if (session.status === "complete" && service && !existingOrder) {
-        const bookingInfo = {
-          serviceId,
-          serviceName: service.service_name,
-          category,
-          unit,
-          rating: Number(rating),
-          transactionId: session.payment_intent,
-          customer: {
-            name: customerName,
-            email: customerEmail
-          },
-          status: "pending",
-          price: session.amount_total / 100,
-          image: service.image,
-          location,
-          bookingDate,
-          createdAt: new Date()
-        };
-
-        // Store booking in DB
-        const result = await bookingsCollection.insertOne(bookingInfo);
-
+      if (!booking) {
         return res.send({
-          success: true,
-          transactionId: session.payment_intent,
-          bookingId: result.insertedId
+          success: false,
+          message: "Booking not found"
         });
       }
 
-      // If order exists, just return it
+      // update booking as paid
+      const updated = await bookingsCollection.updateOne(
+        { _id: booking._id },
+        {
+          $set: {
+            payment: true,
+            transactionId: session.payment_intent,
+            paymentDate: new Date(),
+          },
+        }
+      );
+
       res.send({
         success: true,
+        message: "Payment updated successfully",
+        bookingId: booking._id,
         transactionId: session.payment_intent,
-        bookingId: existingOrder?._id
       });
     });
 
