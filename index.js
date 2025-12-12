@@ -205,6 +205,13 @@ async function run() {
       });
     });
 
+    //save booking in db init state form service details page booking button
+    app.post('/bookings', async (req, res) => {
+      const bookingInfo = req.body;
+      const result = await bookingsCollection.insertOne(bookingInfo);
+      res.send(result);
+    })
+
     //get single service for services details page
     app.get('/services/:id', async (req, res) => {
       const id = req.params.id;
