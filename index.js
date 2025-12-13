@@ -90,7 +90,7 @@ async function run() {
     })
 
     // save a services data in db by admin
-    app.post('/service', async (req, res) => {
+    app.post('/service',verifyJWT, async (req, res) => { //use jwt 
       const serviceData = req.body;
       const result = await servicesCollection.insertOne(serviceData);
       res.send(result);
@@ -103,7 +103,7 @@ async function run() {
     })
 
     //delete a service by admin
-    app.delete('/services/:id', async (req, res) => {
+    app.delete('/services/:id',verifyJWT, async (req, res) => {  //use jwt
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await servicesCollection.deleteOne(query);
@@ -111,10 +111,10 @@ async function run() {
     })
 
     //put/edit a service by admin by
-    app.put('/services/:id', async (req, res) => {
+    app.put('/services/:id',verifyJWT, async (req, res) => {  //use jwt
       const id = req.params.id;
       const serviceData = req.body;
-      console.log(serviceData);
+      // console.log(serviceData);
       // return res.send({acknowledged:true});
       const filter = { _id: new ObjectId(id) };
       const updateDoc = {
@@ -214,10 +214,9 @@ async function run() {
     })
 
     // GET all bookings for a specific customer
-    app.get("/bookings/:email", async (req, res) => {
-      const email = req.params.email;
+    app.get("/bookings",verifyJWT, async (req, res) => {   //use jwt
       const bookings = await bookingsCollection
-        .find({ "customer.email": email })
+        .find({ "customer.email": req.tokenEmail })
         .sort({ createdAt: -1 })
         .toArray();
 
@@ -225,7 +224,7 @@ async function run() {
     });
 
     // DELETE BOOKING
-    app.delete("/bookings/cancel/:id", async (req, res) => {
+    app.delete("/bookings/cancel/:id", async (req, res) => {  //also use anmin or customer
       const id = req.params.id;
       const result = await bookingsCollection.deleteOne({
         _id: new ObjectId(id),
@@ -239,17 +238,16 @@ async function run() {
     });
 
     //get All PAID bookings for a customer
-    app.get("/payments/history", async (req, res) => {
-      const email = req.query.email;
+    app.get("/payments/history",verifyJWT, async (req, res) => {  //use jwt
       const result = await bookingsCollection
-        .find({ "customer.email": email, payment: true })
+        .find({ "customer.email": req.tokenEmail, payment: true })
         .toArray();
 
       res.send(result);
     });
 
     //get single service for services details page
-    app.get('/services/:id', async (req, res) => {
+    app.get('/services/:id', async (req, res) => {  //not needed to verify  //this is also edit admin
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await servicesCollection.findOne(query);
@@ -260,13 +258,13 @@ async function run() {
     //for admin 
     //manage decorator
     // GET all customers
-    app.get("/users/customer", async (req, res) => {
+    app.get("/users/customer",verifyJWT, async (req, res) => {  //use jwt
       const result = await userCollection.find({ role: "customer" }).toArray();
       res.send(result);
     });
 
     // GET all decorators and login get working project and complete project help to manage deorator page
-    app.get("/users/decorator", async (req, res) => {
+    app.get("/users/decorator",verifyJWT, async (req, res) => {  //use jwt
       const decorators = await decoratorsCollection.find().toArray();
 
       const result = await Promise.all(
@@ -302,7 +300,7 @@ async function run() {
     });
 
     // Promote customer to decorator
-    app.patch("/users/promote/:id", async (req, res) => {
+    app.patch("/users/promote/:id",verifyJWT, async (req, res) => {  //use jwt
       const id = req.params.id;
 
       // Update role in user collection
@@ -335,7 +333,7 @@ async function run() {
 
 
     //demote decorator to customer
-    app.patch("/users/demote/:id", async (req, res) => {
+    app.patch("/users/demote/:id",verifyJWT, async (req, res) => {  //use jwt
       const id = req.params.id;
 
       // Update role in users collection
@@ -356,13 +354,13 @@ async function run() {
     });
 
     //admin get bookings
-    app.get("/admin/bookings", async (req, res) => {
+    app.get("/admin/bookings",verifyJWT, async (req, res) => {  //use jwt
       const result = await bookingsCollection.find().toArray();
       res.send(result);
     });
 
     //aftar asign decorator
-    app.patch("/admin/bookings/assign/:id", async (req, res) => {
+    app.patch("/admin/bookings/assign/:id",verifyJWT, async (req, res) => {  //use jwt
       const { decoratorName, decoratorEmail } = req.body;
       await bookingsCollection.updateOne(
         { _id: new ObjectId(req.params.id) },
@@ -378,6 +376,208 @@ async function run() {
       );
       res.send({ success: true });
     });
+
+    //for analysis
+    // admin sumery 
+    app.get("/admin/analytics/summary",verifyJWT, async (req, res) => {  //use jwt
+      try {
+        const bookings = await bookingsCollection.find().toArray();
+
+        let totalRevenue = 0;
+        let unpaidAmount = 0;
+        let totalBookings = bookings.length;
+        let workingOn = 0;
+        let completed = 0;
+        let unpaidCount = 0;
+
+        bookings.forEach((b) => {
+          if (b.payment) {
+            totalRevenue += b.cost;
+          } else {
+            unpaidAmount += b.cost;
+            unpaidCount++;
+          }
+
+          if ([
+            "assigned",
+            "planning_phase",
+            "materials_prepared",
+            "ona_the_way",
+            "setup_in_progress"
+          ].includes(b.bookingStatus)) {
+            workingOn++;
+          }
+
+          if (b.bookingStatus === "completed") {
+            completed++;
+          }
+        });
+
+        res.send({
+          totalRevenue,
+          totalBookings,
+          workingOn,
+          completed,
+          unpaidAmount,
+          unpaidCount
+        });
+      } catch (error) {
+        res.status(500).send({ message: "Failed to load revenue summary" });
+      }
+    });
+
+    // SERVICE DEMAND CHART
+    app.get("/admin/analytics/service-demand",verifyJWT, async (req, res) => {  //use jwt
+      try {
+        const result = await bookingsCollection.aggregate([
+          {
+            $group: {
+              _id: "$serviceName",
+              totalBookings: { $sum: 1 }
+            }
+          },
+          {
+            $project: {
+              _id: 0,
+              serviceName: "$_id",
+              totalBookings: 1
+            }
+          },
+          { $sort: { totalBookings: -1 } }
+        ]).toArray();
+
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Failed to load service demand data" });
+      }
+    });
+
+    //STATUS DISTRIBUTION
+    app.get("/admin/analytics/status-distribution",verifyJWT, async (req, res) => {  //use jwt
+      try {
+        const result = await bookingsCollection.aggregate([
+          {
+            $group: {
+              _id: "$bookingStatus",
+              count: { $sum: 1 }
+            }
+          },
+          {
+            $project: {
+              _id: 0,
+              status: "$_id",
+              count: 1
+            }
+          }
+        ]).toArray();
+
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Failed to load status data" });
+      }
+    });
+
+
+    //decorator
+    // Get assigned projects for decorator
+    app.get("/decorator/projects",verifyJWT, async (req, res) => {  //use jwt
+
+      const result = await bookingsCollection.find({
+        "assignedDecorator.email": req.tokenEmail,
+        bookingStatus: { $ne: "cancelled" }
+      }).toArray();
+
+      res.send(result);
+    });
+
+    //update project status
+    app.patch("/decorator/projects/status/:id", async (req, res) => {  //not need to jwt
+      const id = req.params.id;
+      const { status } = req.body;
+
+      await bookingsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { bookingStatus: status } }
+      );
+
+      res.send({ success: true });
+    });
+
+    //today shedule
+    app.get("/decorator/bookings",verifyJWT, async (req, res) => { //use jwt
+
+      const result = await bookingsCollection.find({
+        "assignedDecorator.email": req.tokenEmail
+      }).toArray();
+
+      res.send(result);
+    });
+
+    //earning sumery
+    app.get("/decorator/earnings",verifyJWT, async (req, res) => { //use jwt
+      try {
+        const email = req.tokenEmail;
+
+        if (!email) {
+          return res.status(400).send({ message: "Decorator email required" });
+        }
+
+        const bookings = await bookingsCollection.find({
+          "assignedDecorator.email": email
+        }).toArray();
+
+        let totalEarnings = 0;
+        let monthlyEarnings = 0;
+        let completedCount = 0;
+        let pendingEarnings = 0;
+
+        const currentMonth = new Date().getMonth();
+        const currentYear = new Date().getFullYear();
+
+        bookings.forEach(b => {
+          const amount = b.cost || 0;
+
+          if (b.bookingStatus === "completed") {
+            totalEarnings += amount;
+            completedCount++;
+
+            const completedDate = new Date(b.bookingDate);
+            if (
+              completedDate.getMonth() === currentMonth &&
+              completedDate.getFullYear() === currentYear
+            ) {
+              monthlyEarnings += amount;
+            }
+          }
+
+          if (
+            [
+              "assigned",
+              "planning_phase",
+              "materials_prepared",
+              "ona_the_way",
+              "setup_in_progress"
+            ].includes(b.bookingStatus)
+          ) {
+            pendingEarnings += amount;
+          }
+        });
+
+        res.send({
+          totalEarnings,
+          monthlyEarnings,
+          completedCount,
+          pendingEarnings,
+          bookings
+        });
+
+      } catch (err) {
+        res.status(500).send({ message: "Failed to load earnings data" });
+      }
+    });
+
+
+
 
     // Create Stripe checkout session
     app.post("/create-checkout-session", async (req, res) => {
@@ -472,6 +672,18 @@ async function run() {
         transactionId: session.payment_intent,
       });
     });
+
+
+    //all requarement done 
+
+    //for get role based user
+    //get a user role 
+    app.get('/user/role', verifyJWT, async (req, res) => {
+      // console.log(req.tokenEmail);
+      const result = await userCollection.findOne({ email: req.tokenEmail })
+      res.send({ role: result?.role })
+    })
+
 
 
     // Send a ping to confirm a successful connection
