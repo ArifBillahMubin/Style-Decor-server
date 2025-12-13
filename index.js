@@ -265,9 +265,39 @@ async function run() {
       res.send(result);
     });
 
-    // GET all decorators
+    // GET all decorators and login get working project and complete project help to manage deorator page
     app.get("/users/decorator", async (req, res) => {
-      const result = await decoratorsCollection.find().toArray();
+      const decorators = await decoratorsCollection.find().toArray();
+
+      const result = await Promise.all(
+        decorators.map(async (decorator) => {
+
+          const workingProjects = await bookingsCollection.countDocuments({
+            "assignedDecorator.email": decorator.email,
+            bookingStatus: {
+              $in: [
+                "assigned",
+                "planning_phase",
+                "materials_prepared",
+                "ona_the_way",
+                "setup_in_progress"
+              ]
+            }
+          });
+
+          const completedProjects = await bookingsCollection.countDocuments({
+            "assignedDecorator.email": decorator.email,
+            bookingStatus: "completed"
+          });
+
+          return {
+            ...decorator,
+            workingProjects,
+            completedProjects
+          };
+        })
+      );
+
       res.send(result);
     });
 
@@ -325,14 +355,28 @@ async function run() {
       res.send({ success: true, message: "Decorator removed successfully" });
     });
 
-
-
-
-
     //admin get bookings
     app.get("/admin/bookings", async (req, res) => {
       const result = await bookingsCollection.find().toArray();
       res.send(result);
+    });
+
+    //aftar asign decorator
+    app.patch("/admin/bookings/assign/:id", async (req, res) => {
+      const { decoratorName, decoratorEmail } = req.body;
+      await bookingsCollection.updateOne(
+        { _id: new ObjectId(req.params.id) },
+        {
+          $set: {
+            assignedDecorator: {
+              name: decoratorName,
+              email: decoratorEmail,
+            },
+            bookingStatus: "assigned",
+          },
+        }
+      );
+      res.send({ success: true });
     });
 
     // Create Stripe checkout session
