@@ -213,15 +213,52 @@ async function run() {
       res.send(result);
     })
 
-    // GET all bookings for a specific customer
-    app.get("/bookings",verifyJWT, async (req, res) => {   //use jwt
-      const bookings = await bookingsCollection
-        .find({ "customer.email": req.tokenEmail })
-        .sort({ createdAt: -1 })
-        .toArray();
+    // // GET all bookings for a specific customer
+    // app.get("/bookings",verifyJWT, async (req, res) => {   //use jwt
+    //   const bookings = await bookingsCollection
+    //     .find({ "customer.email": req.tokenEmail })
+    //     .sort({ createdAt: -1 })
+    //     .toArray();
 
-      res.send(bookings);
+    //   res.send(bookings);
+    // });
+
+    // GET bookings for logged-in customer with pagination & status filter
+    app.get("/bookings", verifyJWT, async (req, res) => {
+      try {
+        const email = req.tokenEmail;
+
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 5;
+        const status = req.query.status || "all";
+
+        const skip = (page - 1) * limit;
+
+        const query = { "customer.email": email };
+        if (status !== "all") {
+          query.bookingStatus = status;
+        }
+
+        const total = await bookingsCollection.countDocuments(query);
+
+        const bookings = await bookingsCollection
+          .find(query)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+
+        res.send({
+          bookings,
+          total,
+          totalPages: Math.ceil(total / limit),
+          currentPage: page
+        });
+      } catch (err) {
+        res.status(500).send({ message: "Failed to load bookings" });
+      }
     });
+
 
     // DELETE BOOKING
     app.delete("/bookings/cancel/:id", async (req, res) => {  //also use anmin or customer
@@ -353,11 +390,48 @@ async function run() {
       res.send({ success: true, message: "Decorator removed successfully" });
     });
 
-    //admin get bookings
-    app.get("/admin/bookings",verifyJWT, async (req, res) => {  //use jwt
-      const result = await bookingsCollection.find().toArray();
-      res.send(result);
+    // ADMIN GET BOOKINGS (pagination + filter)
+    app.get("/admin/bookings", verifyJWT, async (req, res) => { //use jwt
+      try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 8;
+        const status = req.query.status || "all";
+        const payment = req.query.payment || "all";
+
+        const skip = (page - 1) * limit;
+
+        const query = {};
+
+        // STATUS FILTER
+        if (status !== "all") {
+          query.bookingStatus = status;
+        }
+
+        // PAYMENT FILTER
+        if (payment !== "all") {
+          query.payment = payment === "paid";
+        }
+
+        const total = await bookingsCollection.countDocuments(query);
+
+        const bookings = await bookingsCollection
+          .find(query)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+
+        res.send({
+          bookings,
+          total,
+          totalPages: Math.ceil(total / limit),
+          currentPage: page
+        });
+      } catch (err) {
+        res.status(500).send({ message: "Failed to load admin bookings" });
+      }
     });
+
 
     //aftar asign decorator
     app.patch("/admin/bookings/assign/:id",verifyJWT, async (req, res) => {  //use jwt
@@ -684,6 +758,29 @@ async function run() {
       res.send({ role: result?.role })
     })
 
+
+    //for home page get decorators
+    app.get('/decorators', async (req, res) => {
+      try {
+        const result = await decoratorsCollection
+          .find({ role: 'decorator' })        
+          .sort({ createdAt: 1 })              
+          .limit(3)                            
+          .project({
+            name: 1,
+            email: 1,
+            imageURL: 1,
+            role: 1,
+            createdAt: 1,
+          })
+          .toArray();
+
+        res.send(result);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: 'Failed to load decorators' });
+      }
+    })
 
 
     // Send a ping to confirm a successful connection
