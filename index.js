@@ -61,6 +61,28 @@ async function run() {
     const bookingsCollection = db.collection('bookings')
     const decoratorsCollection = db.collection('decorators')
 
+    // role middlewares
+    const verifyADMIN = async (req, res, next) => {
+      const email = req.tokenEmail
+      const user = await userCollection.findOne({ email })
+      if (user?.role !== 'admin')
+        return res
+          .status(403)
+          .send({ message: 'Admin only Actions!', role: user?.role })
+
+      next()
+    }
+    const verifyDecorator = async (req, res, next) => {
+      const email = req.tokenEmail
+      const user = await userCollection.findOne({ email })
+      if (user?.role !== 'decorator')
+        return res
+          .status(403)
+          .send({ message: 'Decorator only Actions!', role: user?.role })
+
+      next()
+    }
+
     //save and update user 
     app.post('/user', async (req, res) => {
       const userData = req.body
@@ -90,7 +112,7 @@ async function run() {
     })
 
     // save a services data in db by admin
-    app.post('/service',verifyJWT, async (req, res) => { //use jwt 
+    app.post('/service',verifyJWT,verifyADMIN, async (req, res) => { //use jwt 
       const serviceData = req.body;
       const result = await servicesCollection.insertOne(serviceData);
       res.send(result);
@@ -103,7 +125,7 @@ async function run() {
     })
 
     //delete a service by admin
-    app.delete('/services/:id',verifyJWT, async (req, res) => {  //use jwt
+    app.delete('/services/:id',verifyJWT,verifyADMIN, async (req, res) => {  //use jwt
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await servicesCollection.deleteOne(query);
@@ -111,7 +133,7 @@ async function run() {
     })
 
     //put/edit a service by admin by
-    app.put('/services/:id',verifyJWT, async (req, res) => {  //use jwt
+    app.put('/services/:id',verifyJWT,verifyADMIN, async (req, res) => {  //use jwt
       const id = req.params.id;
       const serviceData = req.body;
       // console.log(serviceData);
@@ -295,13 +317,13 @@ async function run() {
     //for admin 
     //manage decorator
     // GET all customers
-    app.get("/users/customer",verifyJWT, async (req, res) => {  //use jwt
+    app.get("/users/customer",verifyJWT,verifyADMIN, async (req, res) => {  //use jwt
       const result = await userCollection.find({ role: "customer" }).toArray();
       res.send(result);
     });
 
     // GET all decorators and login get working project and complete project help to manage deorator page
-    app.get("/users/decorator",verifyJWT, async (req, res) => {  //use jwt
+    app.get("/users/decorator",verifyJWT,verifyADMIN, async (req, res) => {  //use jwt
       const decorators = await decoratorsCollection.find().toArray();
 
       const result = await Promise.all(
@@ -337,7 +359,7 @@ async function run() {
     });
 
     // Promote customer to decorator
-    app.patch("/users/promote/:id",verifyJWT, async (req, res) => {  //use jwt
+    app.patch("/users/promote/:id",verifyJWT,verifyADMIN, async (req, res) => {  //use jwt
       const id = req.params.id;
 
       // Update role in user collection
@@ -370,7 +392,7 @@ async function run() {
 
 
     //demote decorator to customer
-    app.patch("/users/demote/:id",verifyJWT, async (req, res) => {  //use jwt
+    app.patch("/users/demote/:id",verifyJWT,verifyADMIN, async (req, res) => {  //use jwt
       const id = req.params.id;
 
       // Update role in users collection
@@ -391,7 +413,7 @@ async function run() {
     });
 
     // ADMIN GET BOOKINGS (pagination + filter)
-    app.get("/admin/bookings", verifyJWT, async (req, res) => { //use jwt
+    app.get("/admin/bookings", verifyJWT,verifyADMIN, async (req, res) => { //use jwt
       try {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 8;
@@ -434,7 +456,7 @@ async function run() {
 
 
     //aftar asign decorator
-    app.patch("/admin/bookings/assign/:id",verifyJWT, async (req, res) => {  //use jwt
+    app.patch("/admin/bookings/assign/:id",verifyJWT,verifyADMIN, async (req, res) => {  //use jwt
       const { decoratorName, decoratorEmail } = req.body;
       await bookingsCollection.updateOne(
         { _id: new ObjectId(req.params.id) },
@@ -453,7 +475,7 @@ async function run() {
 
     //for analysis
     // admin sumery 
-    app.get("/admin/analytics/summary",verifyJWT, async (req, res) => {  //use jwt
+    app.get("/admin/analytics/summary",verifyJWT,verifyADMIN, async (req, res) => {  //use jwt
       try {
         const bookings = await bookingsCollection.find().toArray();
 
@@ -501,7 +523,7 @@ async function run() {
     });
 
     // SERVICE DEMAND CHART
-    app.get("/admin/analytics/service-demand",verifyJWT, async (req, res) => {  //use jwt
+    app.get("/admin/analytics/service-demand",verifyJWT,verifyADMIN, async (req, res) => {  //use jwt
       try {
         const result = await bookingsCollection.aggregate([
           {
@@ -527,7 +549,7 @@ async function run() {
     });
 
     //STATUS DISTRIBUTION
-    app.get("/admin/analytics/status-distribution",verifyJWT, async (req, res) => {  //use jwt
+    app.get("/admin/analytics/status-distribution",verifyJWT,verifyADMIN, async (req, res) => {  //use jwt
       try {
         const result = await bookingsCollection.aggregate([
           {
@@ -554,7 +576,7 @@ async function run() {
 
     //decorator
     // Get assigned projects for decorator
-    app.get("/decorator/projects",verifyJWT, async (req, res) => {  //use jwt
+    app.get("/decorator/projects",verifyJWT,verifyDecorator, async (req, res) => {  //use jwt
 
       const result = await bookingsCollection.find({
         "assignedDecorator.email": req.tokenEmail,
@@ -565,7 +587,7 @@ async function run() {
     });
 
     //update project status
-    app.patch("/decorator/projects/status/:id", async (req, res) => {  //not need to jwt
+    app.patch("/decorator/projects/status/:id",verifyJWT,verifyDecorator, async (req, res) => {  //use jwt
       const id = req.params.id;
       const { status } = req.body;
 
@@ -578,7 +600,7 @@ async function run() {
     });
 
     //today shedule
-    app.get("/decorator/bookings",verifyJWT, async (req, res) => { //use jwt
+    app.get("/decorator/bookings",verifyJWT,verifyDecorator, async (req, res) => { //use jwt
 
       const result = await bookingsCollection.find({
         "assignedDecorator.email": req.tokenEmail
@@ -588,7 +610,7 @@ async function run() {
     });
 
     //earning sumery
-    app.get("/decorator/earnings",verifyJWT, async (req, res) => { //use jwt
+    app.get("/decorator/earnings",verifyJWT,verifyDecorator, async (req, res) => { //use jwt
       try {
         const email = req.tokenEmail;
 
