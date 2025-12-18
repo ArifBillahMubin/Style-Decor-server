@@ -18,13 +18,13 @@ const app = express()
 // middleware
 app.use(
   cors({
-    origin: [
-      process.env.DOMAIN_URL,
-    ],
+    origin: [process.env.DOMAIN_URL, 'http://localhost:5173'], 
     credentials: true,
     optionSuccessStatus: 200,
   })
 )
+// app.use(cors())
+
 app.use(express.json())
 
 // jwt middlewares
@@ -787,7 +787,7 @@ async function run() {
         const result = await decoratorsCollection
           .find({ role: 'decorator' })        
           .sort({ createdAt: 1 })              
-          .limit(3)                            
+          .limit(2)                            
           .project({
             name: 1,
             email: 1,
